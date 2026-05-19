@@ -1,21 +1,21 @@
 import 'dart:async';
 
 import '../../data/local/track_repository.dart';
-import '../../data/remote/osmand_client.dart';
+import '../../data/remote/position_transmitter.dart';
 import '../config/app_config.dart';
 import '../log/deep_log.dart';
 
 class QueueSupervisor {
   QueueSupervisor({
     required TrackRepository repository,
-    required OsmandClient client,
+    required PositionTransmitter transmitter,
     DeepLog? log,
   })  : _repository = repository,
-        _client = client,
+        _transmitter = transmitter,
         _log = log ?? DeepLog.instance;
 
   final TrackRepository _repository;
-  final OsmandClient _client;
+  final PositionTransmitter _transmitter;
   final DeepLog _log;
   Timer? _timer;
   bool _draining = false;
@@ -37,7 +37,7 @@ class QueueSupervisor {
     final pending = await _repository.pendingCount();
     if (pending == 0) return;
     _log.d('Queue: $pending pending records');
-    final reachable = await _client.ping();
+    final reachable = await _transmitter.ping();
     if (!reachable) {
       _log.w('Server unreachable, keeping queue');
       return;
@@ -52,7 +52,7 @@ class QueueSupervisor {
     try {
       final pending = await _repository.getPending();
       for (final record in pending) {
-        final ok = await _client.sendPosition(
+        final ok = await _transmitter.sendPosition(
           lat: record.lat,
           lon: record.lon,
           timestamp: record.timestamp,

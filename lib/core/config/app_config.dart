@@ -1,7 +1,7 @@
 class AppConfig {
   static const String companyName = 'Onecore Software Ltd.';
-  static const String appVersion = '1.0.0';
-  static const String buildDate = '2026-05-15';
+  static const String appVersion = '1.0.1';
+  static const String buildDate = '2026-05-19';
 
   static const String defaultHost = 'adnvycom.servehttp.com';
   static const int defaultPort = 5055;
@@ -14,6 +14,11 @@ class AppConfig {
   static const String prefDeviceId = 'device_id';
   static const String prefHost = 'server_host';
   static const String prefPort = 'server_port';
+  static const String prefTcpPort = 'tcp_port';
+  static const String prefUdpPort = 'udp_port';
+  static const String prefHttpEnabled = 'http_enabled';
+  static const String prefTcpEnabled = 'tcp_enabled';
+  static const String prefUdpEnabled = 'udp_enabled';
   static const String prefBlackBox = 'blackbox_mode';
   static const String prefTracking = 'tracking_enabled';
 }

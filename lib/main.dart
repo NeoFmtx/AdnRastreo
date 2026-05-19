@@ -9,6 +9,12 @@ Future<void> main() async {
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
+
   await AppServices.init();
+
+  if (AppServices.instance.trackingEnabled) {
+    await AppServices.instance.orchestrator.start();
+  }
+
   runApp(const OnecoreGpsApp());
 }

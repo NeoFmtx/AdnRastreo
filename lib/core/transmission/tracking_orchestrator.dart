@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 
 import '../../data/local/track_repository.dart';
-import '../../data/remote/osmand_client.dart';
+import '../../data/remote/position_transmitter.dart';
 import '../../domain/models/raw_gps_point.dart';
 import '../../domain/models/track_record.dart';
 import '../../domain/models/tracker_state.dart';
@@ -12,25 +12,27 @@ import '../geo/geo_engine.dart';
 import '../geo/geo_math.dart';
 import '../log/deep_log.dart';
 import '../queue/queue_supervisor.dart';
+import '../tracking/background_tracking_service.dart';
 
 class TrackingOrchestrator {
   TrackingOrchestrator({
     required TrackRepository repository,
-    required OsmandClient client,
+    required PositionTransmitter transmitter,
     required QueueSupervisor supervisor,
     GeoEngine? geoEngine,
     DeepLog? log,
   })  : _repository = repository,
-        _client = client,
+        _transmitter = transmitter,
         _supervisor = supervisor,
         _geo = geoEngine ?? GeoEngine(log: log),
         _log = log ?? DeepLog.instance;
 
   final TrackRepository _repository;
-  final OsmandClient _client;
+  final PositionTransmitter _transmitter;
   final QueueSupervisor _supervisor;
   final GeoEngine _geo;
   final DeepLog _log;
+  final _background = BackgroundTrackingService.instance;
 
   StreamSubscription<Position>? _positionSub;
   Timer? _transmitTimer;
@@ -46,17 +48,22 @@ class TrackingOrchestrator {
     _log.i('BlackBox mode: $enabled');
   }
 
-  Future<void> start() async {
-    if (_running) return;
-    final permission = await Geolocator.checkPermission();
+  Future<bool> start() async {
+    if (_running) return true;
+
+    final bgOk = await _background.start();
+    if (!bgOk) return false;
+
+  // Permiso "siempre" recomendado para pantalla apagada
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.whileInUse) {
+      permission = await Geolocator.requestPermission();
+    }
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
-      final req = await Geolocator.requestPermission();
-      if (req == LocationPermission.denied ||
-          req == LocationPermission.deniedForever) {
-        _log.e('Location permission denied');
-        return;
-      }
+      _log.e('Location permission denied');
+      await _background.stop();
+      return false;
     }
 
     _running = true;
@@ -67,17 +74,15 @@ class TrackingOrchestrator {
       unawaited(_sendHeartbeat());
     });
 
-    const settings = LocationSettings(
-      accuracy: LocationAccuracy.best,
-      distanceFilter: 5,
+    final settings = _background.locationSettings();
+    _positionSub =
+        Geolocator.getPositionStream(locationSettings: settings).listen(
+      _onPosition,
+      onError: (Object e) => _log.e('GPS stream error: $e'),
     );
 
-    _positionSub = Geolocator.getPositionStream(locationSettings: settings)
-        .listen(_onPosition, onError: (Object e) {
-      _log.e('GPS stream error: $e');
-    });
-
-    _log.i('Tracking started');
+    _log.i('Tracking started (foreground service)');
+    return true;
   }
 
   Future<void> stop() async {
@@ -87,6 +92,7 @@ class TrackingOrchestrator {
     _transmitTimer?.cancel();
     _heartbeatTimer?.cancel();
     _supervisor.stop();
+    await _background.stop();
     _log.i('Tracking stopped');
   }
 
@@ -129,7 +135,7 @@ class TrackingOrchestrator {
     }
 
     if (!_blackBoxMode && result.state == TrackerState.movimiento) {
-      unawaited(_transmitLatest(lat, lon, raw, result.label));
+      unawaited(_transmitLatest());
     }
   }
 
@@ -143,28 +149,21 @@ class TrackingOrchestrator {
       if (!_blackBoxMode) {
         final pending = await _repository.getPending();
         if (pending.isNotEmpty) {
-          final last = pending.last;
-          await _transmitRecord(last);
+          await _transmitRecord(pending.last);
         }
       }
       _scheduleTransmit();
     });
   }
 
-  Future<void> _transmitLatest(
-    double lat,
-    double lon,
-    RawGpsPoint raw,
-    String label,
-  ) async {
+  Future<void> _transmitLatest() async {
     final pending = await _repository.getPending();
     if (pending.isEmpty) return;
-    final last = pending.last;
-    await _transmitRecord(last);
+    await _transmitRecord(pending.last);
   }
 
   Future<void> _transmitRecord(TrackRecord record) async {
-    final ok = await _client.sendPosition(
+    final ok = await _transmitter.sendPosition(
       lat: record.lat,
       lon: record.lon,
       timestamp: record.timestamp,
@@ -186,7 +185,7 @@ class TrackingOrchestrator {
 
   Future<void> _sendHeartbeat() async {
     if (_geo.anchorLat == null || _geo.anchorLon == null) return;
-    final ok = await _client.sendPosition(
+    final ok = await _transmitter.sendPosition(
       lat: _geo.anchorLat!,
       lon: _geo.anchorLon!,
       timestamp: DateTime.now(),
@@ -197,7 +196,7 @@ class TrackingOrchestrator {
 
   Future<void> sendSos() async {
     final pos = await Geolocator.getCurrentPosition();
-    final ok = await _client.sendPosition(
+    final ok = await _transmitter.sendPosition(
       lat: pos.latitude,
       lon: pos.longitude,
       timestamp: DateTime.now(),

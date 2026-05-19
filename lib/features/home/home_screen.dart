@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/bootstrap/app_services.dart';
+import '../../core/config/app_config.dart';
 import '../../domain/models/tracker_state.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -16,10 +17,38 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _holding = false;
   double _holdProgress = 0;
 
+  Future<void> _toggleTracking() async {
+    if (_orchestrator.isRunning) {
+      await _orchestrator.stop();
+      await AppServices.instance.setTrackingEnabled(false);
+    } else {
+      final ok = await _orchestrator.start();
+      if (ok) {
+        await AppServices.instance.setTrackingEnabled(true);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se pudo iniciar. Revisa permisos de ubicación y notificaciones.',
+            ),
+          ),
+        );
+      }
+    }
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = _orchestrator.state;
     final running = _orchestrator.isRunning;
+    final prefs = AppServices.instance.prefs;
+    final host = prefs.getString(AppConfig.prefHost) ?? AppConfig.defaultHost;
+    final channels = <String>[
+      if (prefs.getBool(AppConfig.prefHttpEnabled) ?? true) 'HTTP',
+      if (prefs.getBool(AppConfig.prefTcpEnabled) ?? false) 'TCP',
+      if (prefs.getBool(AppConfig.prefUdpEnabled) ?? false) 'UDP',
+    ].join(', ');
 
     return SafeArea(
       child: Padding(
@@ -28,7 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Onecore GPS',
+              'AdnRastreo',
               style: Theme.of(context).textTheme.headlineMedium,
             ),
             const SizedBox(height: 8),
@@ -36,7 +65,16 @@ class _HomeScreenState extends State<HomeScreen> {
               state: state,
               running: running,
               deviceId: AppServices.instance.deviceId,
+              serverLine: '$host · $channels',
             ),
+            if (running)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Notificación activa: el rastreo continúa con pantalla apagada',
+                  style: TextStyle(fontSize: 12, color: Colors.greenAccent),
+                ),
+              ),
             const Spacer(),
             Center(
               child: GestureDetector(
@@ -81,14 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Spacer(),
             FilledButton.icon(
-              onPressed: () async {
-                if (running) {
-                  await _orchestrator.stop();
-                } else {
-                  await _orchestrator.start();
-                }
-                setState(() {});
-              },
+              onPressed: _toggleTracking,
               icon: Icon(running ? Icons.stop : Icons.play_arrow),
               label: Text(running ? 'Detener rastreo' : 'Iniciar rastreo'),
             ),
@@ -141,11 +172,13 @@ class _StatusCard extends StatelessWidget {
     required this.state,
     required this.running,
     required this.deviceId,
+    required this.serverLine,
   });
 
   final TrackerState state;
   final bool running;
   final String deviceId;
+  final String serverLine;
 
   @override
   Widget build(BuildContext context) {
@@ -171,21 +204,18 @@ class _StatusCard extends StatelessWidget {
                   ),
                 ),
                 const Spacer(),
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: running ? Colors.green : Colors.grey,
-                  ),
+                Icon(
+                  running ? Icons.notifications_active : Icons.notifications_off,
+                  color: running ? Colors.greenAccent : Colors.grey,
+                  size: 20,
                 ),
               ],
             ),
             const SizedBox(height: 12),
-            Text('Device ID: $deviceId', style: const TextStyle(fontSize: 12)),
-            const Text(
-              'Servidor: adnvycom.servehttp.com:5055 (OsmAnd)',
-              style: TextStyle(fontSize: 12, color: Colors.white54),
+            Text('ID: $deviceId', style: const TextStyle(fontSize: 12)),
+            Text(
+              serverLine,
+              style: const TextStyle(fontSize: 12, color: Colors.white54),
             ),
           ],
         ),
