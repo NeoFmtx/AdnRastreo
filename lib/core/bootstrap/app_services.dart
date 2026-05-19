@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../../data/local/database.dart';
 import '../../data/local/track_repository.dart';
 import '../../data/remote/position_transmitter.dart';
+import '../../domain/models/device_imei.dart';
 import '../../domain/models/device_protocol.dart';
 import '../config/app_config.dart';
 import '../queue/queue_supervisor.dart';
@@ -111,7 +112,8 @@ class AppServices {
   }) async {
     await prefs.setString(AppConfig.prefHost, host);
     await prefs.setInt(AppConfig.prefPort, port);
-    await prefs.setString(AppConfig.prefDeviceId, deviceId.trim());
+    final imei = DeviceImei.normalize(deviceId);
+    await prefs.setString(AppConfig.prefDeviceId, imei);
     await prefs.setString(AppConfig.prefProtocol, protocol.name);
     await prefs.setString(AppConfig.prefTransport, transport.name);
     reloadTransmitter();

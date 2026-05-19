@@ -1,9 +1,8 @@
-import '../../domain/models/gps_message.dart';
+import 'encode_context.dart';
 
-/// Codifica un [GpsMessage] al formato binario/texto del fabricante.
+/// Codifica posición al formato del fabricante para envío TCP/UDP.
 abstract class ProtocolEncoder {
   String get protocolName;
 
-  /// Carga útil lista para enviar por TCP o UDP (sin HTTP).
-  List<int> encode(GpsMessage message);
+  List<int> encode(EncodeContext context);
 }

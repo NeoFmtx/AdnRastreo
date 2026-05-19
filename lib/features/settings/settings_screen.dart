@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/bootstrap/app_services.dart';
 import '../../core/config/app_config.dart';
+import '../../domain/models/device_imei.dart';
 import '../../domain/models/device_protocol.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -55,6 +56,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
 
+    if (!DeviceImei.isValid(deviceId)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('IMEI/ID inválido (use 10-20 dígitos o ID Traccar)'),
+        ),
+      );
+      return;
+    }
+
     if (!_protocol.implemented) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -104,7 +114,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   TextField(
                     controller: _deviceIdCtrl,
                     decoration: const InputDecoration(
-                      labelText: 'ID (IMEI / Traccar)',
+                      labelText: 'IMEI / Identificador Traccar',
+                      hintText: 'Debe coincidir con el dispositivo en Traccar',
+                      helperText:
+                          'Mismo ID en todos los protocolos (solo dígitos)',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -165,7 +178,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Transporte',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 12),
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'Traccar: OsmAnd → puerto 5055 + protocolo osmand. '
+                      'TK103 → puerto 5001 + gps103. Use TCP.',
+                      style: TextStyle(fontSize: 11, color: Colors.white54),
+                    ),
+                  ),
                   SegmentedButton<TransportType>(
                     segments: const [
                       ButtonSegment(

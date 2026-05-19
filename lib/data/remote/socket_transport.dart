@@ -1,10 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import '../../domain/models/device_protocol.dart';
 import '../../core/log/deep_log.dart';
 
-/// Envío por socket TCP o UDP (sin HTTP).
 class SocketTransport {
   SocketTransport({DeepLog? log}) : _log = log ?? DeepLog.instance;
 
@@ -45,7 +45,7 @@ class SocketTransport {
           return true;
       }
     } catch (e) {
-      _log.d('Ping $transport falló: $e');
+      _log.d('Ping $transport: $e');
       return false;
     }
   }
@@ -57,15 +57,41 @@ class SocketTransport {
         port,
         timeout: const Duration(seconds: 15),
       );
-      socket.add(payload);
-      await socket.flush();
-      await socket.close().timeout(const Duration(seconds: 5));
-      _log.d('TCP OK ${payload.length} bytes: ${_preview(payload)}');
+      final response = await _sendAndReadResponse(socket, payload);
+      await socket.close();
+
+      final preview = utf8.decode(payload, allowMalformed: true);
+      final short =
+          preview.length > 120 ? '${preview.substring(0, 120)}...' : preview;
+      _log.d('TCP >> $short');
+
+      if (response != null) {
+        _log.d('TCP << $response');
+        if (response.contains('400')) {
+          _log.w(
+            'Traccar 400: revisa que el IMEI exista como "Identificador" del dispositivo',
+          );
+          return false;
+        }
+        if (response.contains('200')) return true;
+      }
       return true;
     } catch (e) {
       _log.w('TCP error: $e');
       return false;
     }
+  }
+
+  Future<String?> _sendAndReadResponse(Socket socket, List<int> payload) async {
+    final buffer = <int>[];
+    final sub = socket.listen((data) => buffer.addAll(data));
+    socket.add(payload);
+    await socket.flush();
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    await sub.cancel();
+    if (buffer.isEmpty) return null;
+    final text = utf8.decode(buffer, allowMalformed: true);
+    return text.split('\r\n').first;
   }
 
   Future<bool> _sendUdp(List<int> payload, String host, int port) async {
@@ -75,16 +101,11 @@ class SocketTransport {
       final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
       socket.send(payload, address, port);
       socket.close();
-      _log.d('UDP OK ${payload.length} bytes: ${_preview(payload)}');
+      _log.d('UDP OK ${payload.length} bytes');
       return true;
     } catch (e) {
       _log.w('UDP error: $e');
       return false;
     }
-  }
-
-  String _preview(List<int> bytes) {
-    final text = utf8.decode(bytes, allowMalformed: true);
-    return text.length > 80 ? '${text.substring(0, 80)}...' : text;
   }
 }

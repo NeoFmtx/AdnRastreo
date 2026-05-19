@@ -1,6 +1,8 @@
 import '../../core/log/deep_log.dart';
+import '../../domain/models/device_imei.dart';
 import '../../domain/models/device_protocol.dart';
 import '../../domain/models/gps_message.dart';
+import '../protocols/encode_context.dart';
 import '../protocols/protocol_encoder.dart';
 import '../protocols/protocol_registry.dart';
 import 'socket_transport.dart';
@@ -20,23 +22,10 @@ class TransmitterConfig {
   final DeviceProtocol protocol;
   final TransportType transport;
 
-  TransmitterConfig copyWith({
-    String? host,
-    int? port,
-    String? deviceId,
-    DeviceProtocol? protocol,
-    TransportType? transport,
-  }) =>
-      TransmitterConfig(
-        host: host ?? this.host,
-        port: port ?? this.port,
-        deviceId: deviceId ?? this.deviceId,
-        protocol: protocol ?? this.protocol,
-        transport: transport ?? this.transport,
-      );
+  String get normalizedImei => DeviceImei.normalize(deviceId);
 }
 
-/// Codifica con el protocolo seleccionado y envía por TCP o UDP.
+/// Codifica (protocolo industrial) y envía por TCP o UDP.
 class PositionTransmitter {
   PositionTransmitter({
     required TransmitterConfig config,
@@ -78,24 +67,33 @@ class PositionTransmitter {
     bool valid = true,
   }) async {
     if (!config.protocol.implemented) {
-      _log.w(
-        'Protocolo ${config.protocol.label} aún no disponible para envío',
-      );
+      _log.w('Protocolo ${config.protocol.label} no implementado');
+      return false;
+    }
+
+    final imei = config.normalizedImei;
+    if (!DeviceImei.isValid(imei)) {
+      _log.e('IMEI/ID inválido: $imei');
       return false;
     }
 
     try {
-      final message = GpsMessage(
-        deviceId: config.deviceId,
-        lat: lat,
-        lon: lon,
-        timestamp: timestamp,
-        speedKmh: speedKmh,
-        bearing: bearing,
-        accuracyM: accuracyM,
-        valid: valid,
+      final ctx = EncodeContext(
+        message: GpsMessage(
+          deviceId: imei,
+          lat: lat,
+          lon: lon,
+          timestamp: timestamp,
+          speedKmh: speedKmh,
+          bearing: bearing,
+          accuracyM: accuracyM,
+          valid: valid,
+        ),
+        host: config.host,
+        port: config.port,
+        transport: config.transport,
       );
-      final payload = _encoder.encode(message);
+      final payload = _encoder.encode(ctx);
       return _transport.send(
         payload: payload,
         host: config.host,
@@ -106,7 +104,7 @@ class PositionTransmitter {
       _log.w('$e');
       return false;
     } catch (e) {
-      _log.e('Encode/send error: $e');
+      _log.e('Encode/send: $e');
       return false;
     }
   }
