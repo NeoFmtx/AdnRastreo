@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/bootstrap/app_services.dart';
 import '../../core/config/app_config.dart';
+import '../../domain/models/device_protocol.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -13,13 +14,10 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _deviceIdCtrl = TextEditingController();
   final _hostCtrl = TextEditingController(text: AppConfig.defaultHost);
-  final _httpPortCtrl = TextEditingController(text: '${AppConfig.defaultPort}');
-  final _tcpPortCtrl = TextEditingController(text: '${AppConfig.defaultPort}');
-  final _udpPortCtrl = TextEditingController(text: '${AppConfig.defaultPort}');
+  final _portCtrl = TextEditingController(text: '${AppConfig.defaultPort}');
+  DeviceProtocol _protocol = DeviceProtocol.osmand;
+  TransportType _transport = TransportType.tcp;
   bool _blackBox = false;
-  bool _http = true;
-  bool _tcp = false;
-  bool _udp = false;
   bool _autoStart = false;
 
   @override
@@ -33,13 +31,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _deviceIdCtrl.text =
         prefs.getString(AppConfig.prefDeviceId) ?? AppServices.instance.deviceId;
     _hostCtrl.text = prefs.getString(AppConfig.prefHost) ?? AppConfig.defaultHost;
-    _httpPortCtrl.text = '${prefs.getInt(AppConfig.prefPort) ?? AppConfig.defaultPort}';
-    _tcpPortCtrl.text = '${prefs.getInt(AppConfig.prefTcpPort) ?? AppConfig.defaultPort}';
-    _udpPortCtrl.text = '${prefs.getInt(AppConfig.prefUdpPort) ?? AppConfig.defaultPort}';
+    _portCtrl.text = '${prefs.getInt(AppConfig.prefPort) ?? AppConfig.defaultPort}';
+    _protocol = DeviceProtocol.fromKey(prefs.getString(AppConfig.prefProtocol));
+    _transport = TransportType.fromKey(prefs.getString(AppConfig.prefTransport));
     _blackBox = prefs.getBool(AppConfig.prefBlackBox) ?? false;
-    _http = prefs.getBool(AppConfig.prefHttpEnabled) ?? true;
-    _tcp = prefs.getBool(AppConfig.prefTcpEnabled) ?? false;
-    _udp = prefs.getBool(AppConfig.prefUdpEnabled) ?? false;
     _autoStart = prefs.getBool(AppConfig.prefTracking) ?? false;
   }
 
@@ -47,9 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _deviceIdCtrl.dispose();
     _hostCtrl.dispose();
-    _httpPortCtrl.dispose();
-    _tcpPortCtrl.dispose();
-    _udpPortCtrl.dispose();
+    _portCtrl.dispose();
     super.dispose();
   }
 
@@ -61,22 +54,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       return;
     }
-    if (!_http && !_tcp && !_udp) {
+
+    if (!_protocol.implemented) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Activa al menos un canal: HTTP, TCP o UDP')),
+        SnackBar(
+          content: Text(
+            'Protocolo ${_protocol.label} en desarrollo. Elige OsmAnd o TK103/106.',
+          ),
+        ),
       );
       return;
     }
 
     await AppServices.instance.saveConnectionSettings(
       host: _hostCtrl.text.trim(),
-      httpPort: int.tryParse(_httpPortCtrl.text) ?? AppConfig.defaultPort,
-      tcpPort: int.tryParse(_tcpPortCtrl.text) ?? AppConfig.defaultPort,
-      udpPort: int.tryParse(_udpPortCtrl.text) ?? AppConfig.defaultPort,
+      port: int.tryParse(_portCtrl.text) ?? AppConfig.defaultPort,
       deviceId: deviceId,
-      httpEnabled: _http,
-      tcpEnabled: _tcp,
-      udpEnabled: _udp,
+      protocol: _protocol,
+      transport: _transport,
     );
     await AppServices.instance.setTrackingEnabled(_autoStart);
 
@@ -110,7 +105,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     controller: _deviceIdCtrl,
                     decoration: const InputDecoration(
                       labelText: 'ID (IMEI / Traccar)',
-                      hintText: 'Ej. 123456789012345',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -126,25 +120,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Servidor',
+                    'Protocolo de emulación',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _hostCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Host',
-                      border: OutlineInputBorder(),
-                    ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Independiente del transporte (TCP/UDP)',
+                    style: TextStyle(fontSize: 12, color: Colors.white54),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: _httpPortCtrl,
-                    keyboardType: TextInputType.number,
+                  DropdownButtonFormField<DeviceProtocol>(
+                    initialValue: _protocol,
                     decoration: const InputDecoration(
-                      labelText: 'Puerto HTTP (OsmAnd)',
                       border: OutlineInputBorder(),
                     ),
+                    items: DeviceProtocol.values
+                        .map(
+                          (p) => DropdownMenuItem(
+                            value: p,
+                            child: Text(
+                              p.implemented
+                                  ? p.label
+                                  : '${p.label} (próximamente)',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setState(() => _protocol = v);
+                    },
                   ),
                 ],
               ),
@@ -152,57 +156,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 12),
           Card(
-            child: Column(
-              children: [
-                SwitchListTile(
-                  title: const Text('HTTP (OsmAnd)'),
-                  subtitle: const Text('GET estándar Traccar puerto 5055'),
-                  value: _http,
-                  onChanged: (v) => setState(() => _http = v),
-                ),
-                SwitchListTile(
-                  title: const Text('TCP'),
-                  subtitle: const Text('Mismo paquete GET por socket TCP'),
-                  value: _tcp,
-                  onChanged: (v) => setState(() => _tcp = v),
-                ),
-                if (_tcp)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: TextField(
-                      controller: _tcpPortCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Puerto TCP',
-                        border: OutlineInputBorder(),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Transporte',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  SegmentedButton<TransportType>(
+                    segments: const [
+                      ButtonSegment(
+                        value: TransportType.tcp,
+                        label: Text('TCP'),
+                        icon: Icon(Icons.cable),
                       ),
+                      ButtonSegment(
+                        value: TransportType.udp,
+                        label: Text('UDP'),
+                        icon: Icon(Icons.wifi_tethering),
+                      ),
+                    ],
+                    selected: {_transport},
+                    onSelectionChanged: (s) =>
+                        setState(() => _transport = s.first),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _hostCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Host del servidor',
+                      border: OutlineInputBorder(),
                     ),
                   ),
-                SwitchListTile(
-                  title: const Text('UDP'),
-                  subtitle: const Text('Misma query por datagrama UDP'),
-                  value: _udp,
-                  onChanged: (v) => setState(() => _udp = v),
-                ),
-                if (_udp)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: TextField(
-                      controller: _udpPortCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'Puerto UDP',
-                        border: OutlineInputBorder(),
-                      ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _portCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Puerto ${_transport.label}',
+                      border: const OutlineInputBorder(),
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 12),
           SwitchListTile(
             title: const Text('Modo Caja Negra'),
-            subtitle: const Text('Envía lote al confirmar parada'),
             value: _blackBox,
             onChanged: (v) async {
               await AppServices.instance.setBlackBox(v);
@@ -211,7 +215,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           SwitchListTile(
             title: const Text('Iniciar rastreo al abrir app'),
-            subtitle: const Text('Servicio GPS automático con notificación'),
             value: _autoStart,
             onChanged: (v) => setState(() => _autoStart = v),
           ),
@@ -221,9 +224,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: const Text('Guardar configuración'),
           ),
           const SizedBox(height: 24),
-          Text(AppConfig.companyName,
-              style: const TextStyle(fontWeight: FontWeight.bold)),
-          Text('Versión ${AppConfig.appVersion} · Build ${AppConfig.buildDate}'),
+          const Text(
+            AppConfig.companyName,
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          Text('Versión ${AppConfig.appVersion}'),
         ],
       ),
     );

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/bootstrap/app_services.dart';
-import '../../core/config/app_config.dart';
 import '../../domain/models/tracker_state.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -42,13 +41,9 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final state = _orchestrator.state;
     final running = _orchestrator.isRunning;
-    final prefs = AppServices.instance.prefs;
-    final host = prefs.getString(AppConfig.prefHost) ?? AppConfig.defaultHost;
-    final channels = <String>[
-      if (prefs.getBool(AppConfig.prefHttpEnabled) ?? true) 'HTTP',
-      if (prefs.getBool(AppConfig.prefTcpEnabled) ?? false) 'TCP',
-      if (prefs.getBool(AppConfig.prefUdpEnabled) ?? false) 'UDP',
-    ].join(', ');
+    final cfg = AppServices.instance.transmitter.config;
+    final serverLine =
+        '${cfg.protocol.label} · ${cfg.transport.label} · ${cfg.host}:${cfg.port}';
 
     return SafeArea(
       child: Padding(
@@ -65,7 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
               state: state,
               running: running,
               deviceId: AppServices.instance.deviceId,
-              serverLine: '$host · $channels',
+              serverLine: serverLine,
             ),
             if (running)
               const Padding(

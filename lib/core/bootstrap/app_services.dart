@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import '../../data/local/database.dart';
 import '../../data/local/track_repository.dart';
 import '../../data/remote/position_transmitter.dart';
+import '../../domain/models/device_protocol.dart';
 import '../config/app_config.dart';
 import '../queue/queue_supervisor.dart';
 import '../transmission/tracking_orchestrator.dart';
@@ -36,6 +37,8 @@ class AppServices {
     if (_instance != null) return _instance!;
 
     final prefs = await SharedPreferences.getInstance();
+    await _migrateLegacyPrefs(prefs);
+
     var deviceId = prefs.getString(AppConfig.prefDeviceId);
     if (deviceId == null || deviceId.isEmpty) {
       deviceId = const Uuid().v4().replaceAll('-', '').substring(0, 15);
@@ -67,16 +70,29 @@ class AppServices {
     return _instance!;
   }
 
+  static Future<void> _migrateLegacyPrefs(SharedPreferences prefs) async {
+    if (prefs.containsKey(AppConfig.prefProtocol)) return;
+
+    final transport = (prefs.getBool(AppConfig.prefUdpEnabled) ?? false)
+        ? TransportType.udp
+        : TransportType.tcp;
+    final port = prefs.getInt(AppConfig.prefTcpPort) ??
+        prefs.getInt(AppConfig.prefUdpPort) ??
+        prefs.getInt(AppConfig.prefPort) ??
+        AppConfig.defaultPort;
+
+    await prefs.setString(AppConfig.prefProtocol, DeviceProtocol.osmand.name);
+    await prefs.setString(AppConfig.prefTransport, transport.name);
+    await prefs.setInt(AppConfig.prefPort, port);
+  }
+
   static TransmitterConfig _loadConfig(SharedPreferences prefs) =>
       TransmitterConfig(
         host: prefs.getString(AppConfig.prefHost) ?? AppConfig.defaultHost,
-        httpPort: prefs.getInt(AppConfig.prefPort) ?? AppConfig.defaultPort,
-        tcpPort: prefs.getInt(AppConfig.prefTcpPort) ?? AppConfig.defaultPort,
-        udpPort: prefs.getInt(AppConfig.prefUdpPort) ?? AppConfig.defaultPort,
+        port: prefs.getInt(AppConfig.prefPort) ?? AppConfig.defaultPort,
         deviceId: prefs.getString(AppConfig.prefDeviceId) ?? '',
-        httpEnabled: prefs.getBool(AppConfig.prefHttpEnabled) ?? true,
-        tcpEnabled: prefs.getBool(AppConfig.prefTcpEnabled) ?? false,
-        udpEnabled: prefs.getBool(AppConfig.prefUdpEnabled) ?? false,
+        protocol: DeviceProtocol.fromKey(prefs.getString(AppConfig.prefProtocol)),
+        transport: TransportType.fromKey(prefs.getString(AppConfig.prefTransport)),
       );
 
   void reloadTransmitter() {
@@ -88,22 +104,16 @@ class AppServices {
 
   Future<void> saveConnectionSettings({
     required String host,
-    required int httpPort,
-    required int tcpPort,
-    required int udpPort,
+    required int port,
     required String deviceId,
-    required bool httpEnabled,
-    required bool tcpEnabled,
-    required bool udpEnabled,
+    required DeviceProtocol protocol,
+    required TransportType transport,
   }) async {
     await prefs.setString(AppConfig.prefHost, host);
-    await prefs.setInt(AppConfig.prefPort, httpPort);
-    await prefs.setInt(AppConfig.prefTcpPort, tcpPort);
-    await prefs.setInt(AppConfig.prefUdpPort, udpPort);
+    await prefs.setInt(AppConfig.prefPort, port);
     await prefs.setString(AppConfig.prefDeviceId, deviceId.trim());
-    await prefs.setBool(AppConfig.prefHttpEnabled, httpEnabled);
-    await prefs.setBool(AppConfig.prefTcpEnabled, tcpEnabled);
-    await prefs.setBool(AppConfig.prefUdpEnabled, udpEnabled);
+    await prefs.setString(AppConfig.prefProtocol, protocol.name);
+    await prefs.setString(AppConfig.prefTransport, transport.name);
     reloadTransmitter();
   }
 
